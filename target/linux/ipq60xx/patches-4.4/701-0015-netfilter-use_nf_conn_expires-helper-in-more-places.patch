@@ -1,0 +1,72 @@
+commit d0b35b93d45cedf1dc561aba4027441b3d28d290
+Author: Florian Westphal <fw@strlen.de>
+Date:   Wed Aug 3 02:45:07 2016 +0200
+
+    netfilter: use_nf_conn_expires helper in more places
+    
+    ... so we don't need to touch all of these places when we get rid of the
+    timer in nf_conn.
+    
+    Signed-off-by: Florian Westphal <fw@strlen.de>
+    Signed-off-by: Pablo Neira Ayuso <pablo@netfilter.org>
+
+diff --git a/net/ipv4/netfilter/nf_conntrack_l3proto_ipv4_compat.c b/net/ipv4/netfilter/nf_conntrack_l3proto_ipv4_compat.c
+index 63923710f325..67bfc69e00bc 100644
+--- a/net/ipv4/netfilter/nf_conntrack_l3proto_ipv4_compat.c
++++ b/net/ipv4/netfilter/nf_conntrack_l3proto_ipv4_compat.c
+@@ -163,8 +163,7 @@ static int ct_seq_show(struct seq_file *s, void *v)
+ 	ret = -ENOSPC;
+ 	seq_printf(s, "%-8s %u %ld ",
+ 		   l4proto->name, nf_ct_protonum(ct),
+-		   timer_pending(&ct->timeout)
+-		   ? (long)(ct->timeout.expires - jiffies)/HZ : 0);
++		   nf_ct_expires(ct) / HZ);
+ 
+ 	if (l4proto->print_conntrack)
+ 		l4proto->print_conntrack(s, ct);
+diff --git a/net/netfilter/nf_conntrack_netlink.c b/net/netfilter/nf_conntrack_netlink.c
+index 050bb3420a6b..68800c10a320 100644
+--- a/net/netfilter/nf_conntrack_netlink.c
++++ b/net/netfilter/nf_conntrack_netlink.c
+@@ -149,10 +149,7 @@ static int ctnetlink_dump_status(struct sk_buff *skb, const struct nf_conn *ct)
+ 
+ static int ctnetlink_dump_timeout(struct sk_buff *skb, const struct nf_conn *ct)
+ {
+-	long timeout = ((long)ct->timeout.expires - (long)jiffies) / HZ;
+-
+-	if (timeout < 0)
+-		timeout = 0;
++	long timeout = nf_ct_expires(ct) / HZ;
+ 
+ 	if (nla_put_be32(skb, CTA_TIMEOUT, htonl(timeout)))
+ 		goto nla_put_failure;
+diff --git a/net/netfilter/nf_conntrack_standalone.c b/net/netfilter/nf_conntrack_standalone.c
+index 958a1455ca7f..4e7becde4357 100644
+--- a/net/netfilter/nf_conntrack_standalone.c
++++ b/net/netfilter/nf_conntrack_standalone.c
+@@ -224,8 +224,7 @@ static int ct_seq_show(struct seq_file *s, void *v)
+ 	seq_printf(s, "%-8s %u %-8s %u %ld ",
+ 		   l3proto->name, nf_ct_l3num(ct),
+ 		   l4proto->name, nf_ct_protonum(ct),
+-		   timer_pending(&ct->timeout)
+-		   ? (long)(ct->timeout.expires - jiffies)/HZ : 0);
++		   nf_ct_expires(ct)  / HZ);
+ 
+ 	if (l4proto->print_conntrack)
+ 		l4proto->print_conntrack(s, ct);
+diff --git a/net/netfilter/xt_conntrack.c b/net/netfilter/xt_conntrack.c
+index 188404b9b002..a3b8f697cfc5 100644
+--- a/net/netfilter/xt_conntrack.c
++++ b/net/netfilter/xt_conntrack.c
+@@ -233,10 +233,8 @@ conntrack_mt(const struct sk_buff *skb, struct xt_action_param *par,
+ 		return false;
+ 
+ 	if (info->match_flags & XT_CONNTRACK_EXPIRES) {
+-		unsigned long expires = 0;
++		unsigned long expires = nf_ct_expires(ct) / HZ;
+ 
+-		if (timer_pending(&ct->timeout))
+-			expires = (ct->timeout.expires - jiffies) / HZ;
+ 		if ((expires >= info->expires_min &&
+ 		    expires <= info->expires_max) ^
+ 		    !(info->invert_flags & XT_CONNTRACK_EXPIRES))

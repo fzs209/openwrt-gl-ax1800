@@ -1,0 +1,26 @@
+commit 53c520c2ab79e9f3765d24116ab54f6d5b3cd563
+Author: Florian Westphal <fw@strlen.de>
+Date:   Thu Jan 28 13:16:59 2016 +0100
+
+    netfilter: cttimeout: fix deadlock due to erroneous unlock/lock conversion
+    
+    The spin_unlock call should have been left as-is, revert.
+    
+    Fixes: b16c29191dc89bd ("netfilter: nf_conntrack: use safer way to lock all buckets")
+    Reported-by: kernel test robot <fengguang.wu@intel.com>
+    Signed-off-by: Florian Westphal <fw@strlen.de>
+    Signed-off-by: Pablo Neira Ayuso <pablo@netfilter.org>
+
+diff --git a/net/netfilter/nfnetlink_cttimeout.c b/net/netfilter/nfnetlink_cttimeout.c
+index 94837d236ab0..2671b9deb103 100644
+--- a/net/netfilter/nfnetlink_cttimeout.c
++++ b/net/netfilter/nfnetlink_cttimeout.c
+@@ -312,7 +312,7 @@ static void ctnl_untimeout(struct net *net, struct ctnl_timeout *timeout)
+ 			hlist_nulls_for_each_entry(h, nn, &net->ct.hash[i], hnnode)
+ 				untimeout(h, timeout);
+ 		}
+-		nf_conntrack_lock(&nf_conntrack_locks[i % CONNTRACK_LOCKS]);
++		spin_unlock(&nf_conntrack_locks[i % CONNTRACK_LOCKS]);
+ 	}
+ 	local_bh_enable();
+ }

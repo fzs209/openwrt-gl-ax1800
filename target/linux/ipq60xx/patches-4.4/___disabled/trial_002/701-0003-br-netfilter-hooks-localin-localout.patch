@@ -1,0 +1,93 @@
+--- a/net/bridge/br_netfilter_hooks.c
++++ b/net/bridge/br_netfilter_hooks.c
+@@ -42,6 +42,11 @@
+ #include "br_private.h"
+ #ifdef CONFIG_SYSCTL
+ #include <linux/sysctl.h>
++#endif
++
++#if IS_ENABLED(CONFIG_NF_CONNTRACK)
++#include <net/netfilter/nf_conntrack.h>
++#include <net/netfilter/nf_conntrack_core.h>
+ #endif
+ 
+ #ifdef CONFIG_SYSCTL
+@@ -885,6 +890,42 @@
+ void br_netfilter_enable(void)
+ {
+ }
++
++#if IS_ENABLED(CONFIG_NF_CONNTRACK)
++static unsigned int br_nf_local_in(void *priv,
++                                   struct sk_buff *skb,
++                                   const struct nf_hook_state *state)
++{
++    enum ip_conntrack_info ctinfo;
++    struct nf_conn *ct;
++    int ret;
++
++    /* Skip packets delivered to local stack */
++    if (skb->pkt_type == PACKET_HOST)
++        return NF_ACCEPT;
++
++    ct = nf_ct_get(skb, &ctinfo);
++    if (!ct || nf_ct_is_confirmed(ct) || nf_ct_is_template(ct))
++        return NF_ACCEPT;
++
++    WARN_ON_ONCE(skb_shared(skb));
++
++    ret = nf_conntrack_confirm(skb);
++    switch (ret & NF_VERDICT_MASK) {
++    case NF_STOLEN:
++        return NF_STOLEN;
++    default:
++        break;
++    }
++
++    /* Re-read conntrack after confirm to avoid stale pointers */
++    ct = nf_ct_get(skb, &ctinfo);
++    WARN_ON_ONCE(!ct || !nf_ct_is_confirmed(ct));
++
++    return ret;
++}
++#endif
++
+ EXPORT_SYMBOL_GPL(br_netfilter_enable);
+ 
+ /* For br_nf_post_routing, we need (prio = NF_BR_PRI_LAST), because
+@@ -1034,3 +1075,35 @@
+ MODULE_AUTHOR("Lennert Buytenhek <buytenh@gnu.org>");
+ MODULE_AUTHOR("Bart De Schuymer <bdschuym@pandora.be>");
+ MODULE_DESCRIPTION("Linux ethernet netfilter firewall bridge");
++
++#if IS_ENABLED(CONFIG_NF_CONNTRACK)
++static unsigned int br_nf_local_out(void *priv,
++                                    struct sk_buff *skb,
++                                    const struct nf_hook_state *state)
++{
++    enum ip_conntrack_info ctinfo;
++    struct nf_conn *ct;
++    int ret;
++
++    ct = nf_ct_get(skb, &ctinfo);
++    if (!ct || nf_ct_is_confirmed(ct) || nf_ct_is_template(ct))
++        return NF_ACCEPT;
++
++    WARN_ON_ONCE(skb_shared(skb));
++
++    ret = nf_conntrack_confirm(skb);
++    switch (ret & NF_VERDICT_MASK) {
++    case NF_STOLEN:
++        return NF_STOLEN;
++    default:
++        break;
++    }
++
++    /* Re-read conntrack after confirm to avoid stale pointers */
++    ct = nf_ct_get(skb, &ctinfo);
++    WARN_ON_ONCE(!ct || !nf_ct_is_confirmed(ct));
++
++    return ret;
++}
++#endif
++

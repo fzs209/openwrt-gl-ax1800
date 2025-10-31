@@ -1,0 +1,84 @@
+commit 141658fb02c248e6243d619cb7d48a76158a66ac
+Author: Florian Westphal <fw@strlen.de>
+Date:   Mon Apr 18 16:17:01 2016 +0200
+
+    netfilter: conntrack: use get_random_once for conntrack hash seed
+    
+    As earlier commit removed accessed to the hash from other files we can
+    also make it static.
+    
+    Signed-off-by: Florian Westphal <fw@strlen.de>
+    Signed-off-by: Pablo Neira Ayuso <pablo@netfilter.org>
+
+    ANCLARK NOTICE: This patch is already applied by 701-0003-netfilter-conntrack-use-get_random_once-for-nat-and-expectations
+    (7001c6d109ea41a88e7156f467cf9fb5f37f5036).
+
+diff --git a/include/net/netfilter/nf_conntrack.h b/include/net/netfilter/nf_conntrack.h
+index fde4068eec0b..dd78bea227c8 100644
+--- a/include/net/netfilter/nf_conntrack.h
++++ b/include/net/netfilter/nf_conntrack.h
+@@ -289,8 +289,6 @@ struct kernel_param;
+ int nf_conntrack_set_hashsize(const char *val, struct kernel_param *kp);
+ extern unsigned int nf_conntrack_htable_size;
+ extern unsigned int nf_conntrack_max;
+-extern unsigned int nf_conntrack_hash_rnd;
+-void init_nf_conntrack_hash_rnd(void);
+ 
+ struct nf_conn *nf_ct_tmpl_alloc(struct net *net,
+ 				 const struct nf_conntrack_zone *zone,
+diff --git a/net/netfilter/nf_conntrack_core.c b/net/netfilter/nf_conntrack_core.c
+index a53c009fe510..1fd0ff1030c2 100644
+--- a/net/netfilter/nf_conntrack_core.c
++++ b/net/netfilter/nf_conntrack_core.c
+@@ -142,13 +142,14 @@ EXPORT_SYMBOL_GPL(nf_conntrack_max);
+ DEFINE_PER_CPU(struct nf_conn, nf_conntrack_untracked);
+ EXPORT_PER_CPU_SYMBOL(nf_conntrack_untracked);
+ 
+-unsigned int nf_conntrack_hash_rnd __read_mostly;
+-EXPORT_SYMBOL_GPL(nf_conntrack_hash_rnd);
++static unsigned int nf_conntrack_hash_rnd __read_mostly;
+ 
+ static u32 hash_conntrack_raw(const struct nf_conntrack_tuple *tuple)
+ {
+ 	unsigned int n;
+ 
++	get_random_once(&nf_conntrack_hash_rnd, sizeof(nf_conntrack_hash_rnd));
++
+ 	/* The direction must be ignored, so we hash everything up to the
+ 	 * destination ports (which is a multiple of 4) and treat the last
+ 	 * three bytes manually.
+@@ -815,21 +816,6 @@ static noinline int early_drop(struct net *net, unsigned int _hash)
+ 	return dropped;
+ }
+ 
+-void init_nf_conntrack_hash_rnd(void)
+-{
+-	unsigned int rand;
+-
+-	/*
+-	 * Why not initialize nf_conntrack_rnd in a "init()" function ?
+-	 * Because there isn't enough entropy when system initializing,
+-	 * and we initialize it as late as possible.
+-	 */
+-	do {
+-		get_random_bytes(&rand, sizeof(rand));
+-	} while (!rand);
+-	cmpxchg(&nf_conntrack_hash_rnd, 0, rand);
+-}
+-
+ static struct nf_conn *
+ __nf_conntrack_alloc(struct net *net,
+ 		     const struct nf_conntrack_zone *zone,
+@@ -839,12 +825,6 @@ __nf_conntrack_alloc(struct net *net,
+ {
+ 	struct nf_conn *ct;
+ 
+-	if (unlikely(!nf_conntrack_hash_rnd)) {
+-		init_nf_conntrack_hash_rnd();
+-		/* recompute the hash as nf_conntrack_hash_rnd is initialized */
+-		hash = hash_conntrack_raw(orig);
+-	}
+-
+ 	/* We don't want any race condition at early drop stage */
+ 	atomic_inc(&net->ct.count);
+ 

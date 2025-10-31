@@ -1,0 +1,9 @@
+--- a/net/bridge/netfilter/Makefile
++++ b/net/bridge/netfilter/Makefile
+@@ -38,3 +38,6 @@
+ # watchers
+ obj-$(CONFIG_BRIDGE_EBT_LOG) += ebt_log.o
+ obj-$(CONFIG_BRIDGE_EBT_NFLOG) += ebt_nflog.o
++
++# conntrack bridge helper (backport)
++obj-$(CONFIG_BRIDGE_NETFILTER) += nf_conntrack_bridge.o

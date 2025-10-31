@@ -1,0 +1,70 @@
+commit 245cfdcaba2e7e4ee16b12af547ead37f9c501cd
+Author: Florian Westphal <fw@strlen.de>
+Date:   Thu Apr 28 19:13:44 2016 +0200
+
+    netfilter: conntrack: small refactoring of conntrack seq_printf
+    
+    The iteration process is lockless, so we test if the conntrack object is
+    eligible for printing (e.g. is AF_INET) after obtaining the reference
+    count.
+    
+    Once we put all conntracks into same hash table we might see more
+    entries that need to be skipped.
+    
+    So add a helper and first perform the test in a lockless fashion
+    for fast skip.
+    
+    Once we obtain the reference count, just repeat the check.
+    
+    Note that this refactoring also includes a missing check for unconfirmed
+    conntrack entries due to slab rcu object re-usage, so they need to be
+    skipped since they are not part of the listing.
+    
+    Signed-off-by: Florian Westphal <fw@strlen.de>
+    Signed-off-by: Pablo Neira Ayuso <pablo@netfilter.org>
+
+diff --git a/net/ipv4/netfilter/nf_conntrack_l3proto_ipv4_compat.c b/net/ipv4/netfilter/nf_conntrack_l3proto_ipv4_compat.c
+index f0dfe92a00d6..483cf7952e54 100644
+--- a/net/ipv4/netfilter/nf_conntrack_l3proto_ipv4_compat.c
++++ b/net/ipv4/netfilter/nf_conntrack_l3proto_ipv4_compat.c
+@@ -114,6 +114,19 @@ static inline void ct_show_secctx(struct seq_file *s, const struct nf_conn *ct)
+ }
+ #endif
+ 
++static bool ct_seq_should_skip(const struct nf_conn *ct,
++			       const struct nf_conntrack_tuple_hash *hash)
++{
++	/* we only want to print DIR_ORIGINAL */
++	if (NF_CT_DIRECTION(hash))
++		return true;
++
++	if (nf_ct_l3num(ct) != AF_INET)
++		return true;
++
++	return false;
++}
++
+ static int ct_seq_show(struct seq_file *s, void *v)
+ {
+ 	struct nf_conntrack_tuple_hash *hash = v;
+@@ -123,14 +136,15 @@ static int ct_seq_show(struct seq_file *s, void *v)
+ 	int ret = 0;
+ 
+ 	NF_CT_ASSERT(ct);
+-	if (unlikely(!atomic_inc_not_zero(&ct->ct_general.use)))
++	if (ct_seq_should_skip(ct, hash))
+ 		return 0;
+ 
++	if (unlikely(!atomic_inc_not_zero(&ct->ct_general.use)))
++		return 0;
+ 
+-	/* we only want to print DIR_ORIGINAL */
+-	if (NF_CT_DIRECTION(hash))
+-		goto release;
+-	if (nf_ct_l3num(ct) != AF_INET)
++	/* check if we raced w. object reuse */
++	if (!nf_ct_is_confirmed(ct) ||
++	    ct_seq_should_skip(ct, hash))
+ 		goto release;
+ 
+ 	l3proto = __nf_ct_l3proto_find(nf_ct_l3num(ct));

@@ -1,0 +1,72 @@
+commit 868043485ecb7cda503af0dfb9e2804e0260196a
+Author: Florian Westphal <fw@strlen.de>
+Date:   Thu Apr 28 19:13:43 2016 +0200
+
+    netfilter: conntrack: use nf_ct_key_equal() in more places
+    
+    This prepares for upcoming change that places all conntracks into a
+    single, global table.  For this to work we will need to also compare
+    net pointer during lookup.  To avoid open-coding such check use the
+    nf_ct_key_equal helper and then later extend it to also consider net_eq.
+    
+    Signed-off-by: Florian Westphal <fw@strlen.de>
+    Signed-off-by: Pablo Neira Ayuso <pablo@netfilter.org>
+
+diff --git a/net/netfilter/nf_conntrack_core.c b/net/netfilter/nf_conntrack_core.c
+index f2e75a54408b..3b9c3023192e 100644
+--- a/net/netfilter/nf_conntrack_core.c
++++ b/net/netfilter/nf_conntrack_core.c
+@@ -572,16 +572,13 @@ nf_conntrack_hash_check_insert(struct nf_conn *ct)
+ 
+ 	/* See if there's one in the list already, including reverse */
+ 	hlist_nulls_for_each_entry(h, n, &net->ct.hash[hash], hnnode)
+-		if (nf_ct_tuple_equal(&ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple,
+-				      &h->tuple) &&
+-		    nf_ct_zone_equal(nf_ct_tuplehash_to_ctrack(h), zone,
+-				     NF_CT_DIRECTION(h)))
++		if (nf_ct_key_equal(h, &ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple,
++				    zone))
+ 			goto out;
++
+ 	hlist_nulls_for_each_entry(h, n, &net->ct.hash[reply_hash], hnnode)
+-		if (nf_ct_tuple_equal(&ct->tuplehash[IP_CT_DIR_REPLY].tuple,
+-				      &h->tuple) &&
+-		    nf_ct_zone_equal(nf_ct_tuplehash_to_ctrack(h), zone,
+-				     NF_CT_DIRECTION(h)))
++		if (nf_ct_key_equal(h, &ct->tuplehash[IP_CT_DIR_REPLY].tuple,
++				    zone))
+ 			goto out;
+ 
+ 	add_timer(&ct->timeout);
+@@ -665,16 +662,13 @@ __nf_conntrack_confirm(struct sk_buff *skb)
+ 	   NAT could have grabbed it without realizing, since we're
+ 	   not in the hash.  If there is, we lost race. */
+ 	hlist_nulls_for_each_entry(h, n, &net->ct.hash[hash], hnnode)
+-		if (nf_ct_tuple_equal(&ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple,
+-				      &h->tuple) &&
+-		    nf_ct_zone_equal(nf_ct_tuplehash_to_ctrack(h), zone,
+-				     NF_CT_DIRECTION(h)))
++		if (nf_ct_key_equal(h, &ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple,
++				    zone))
+ 			goto out;
++
+ 	hlist_nulls_for_each_entry(h, n, &net->ct.hash[reply_hash], hnnode)
+-		if (nf_ct_tuple_equal(&ct->tuplehash[IP_CT_DIR_REPLY].tuple,
+-				      &h->tuple) &&
+-		    nf_ct_zone_equal(nf_ct_tuplehash_to_ctrack(h), zone,
+-				     NF_CT_DIRECTION(h)))
++		if (nf_ct_key_equal(h, &ct->tuplehash[IP_CT_DIR_REPLY].tuple,
++				    zone))
+ 			goto out;
+ 
+ 	/* Timer relative to confirmation time, not original
+@@ -746,8 +740,7 @@ nf_conntrack_tuple_taken(const struct nf_conntrack_tuple *tuple,
+ 	hlist_nulls_for_each_entry_rcu(h, n, &ct_hash[hash], hnnode) {
+ 		ct = nf_ct_tuplehash_to_ctrack(h);
+ 		if (ct != ignored_conntrack &&
+-		    nf_ct_tuple_equal(tuple, &h->tuple) &&
+-		    nf_ct_zone_equal(ct, zone, NF_CT_DIRECTION(h))) {
++		    nf_ct_key_equal(h, tuple, zone)) {
+ 			NF_CT_STAT_INC_ATOMIC(net, found);
+ 			rcu_read_unlock();
+ 			return 1;
