@@ -129,7 +129,7 @@ define Device/zn_m2
 	DEVICE_DTS := qcom-ipq6018-zn-m2
 	DEVICE_DTS_CONFIG := config@cp03-c1
 	DEVICE_TITLE := ZN M2
-	DEVICE_PACKAGES := ath11k-wifi-zn-m2
+	DEVICE_PACKAGES := ath11k-wifi-zn_m2
 endef
 TARGET_DEVICES += zn_m2
 

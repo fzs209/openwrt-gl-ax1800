@@ -17,12 +17,16 @@ PKG_SOURCE_URL:= \
 	https://sourceware.org/elfutils/ftp/0.192/
 HOST_BUILD_PARALLEL:=1
 
+HOST_CFLAGS += -Wno-error
+HOST_CXXFLAGS += -Wno-error
+
 include $(INCLUDE_DIR)/host-build.mk
 
 HOST_CONFIGURE_ARGS += \
 	--disable-shared \
 	--enable-elf64 \
-	--disable-nls
+	--disable-nls \
+	--disable-werror
 
 define Host/Configure
         (cd $(HOST_BUILD_DIR)/$(3); \
@@ -33,7 +37,9 @@ endef
 
 
 define Host/Compile
-	+$(MAKE) $(HOST_JOBS) -C $(HOST_BUILD_DIR)
+	+$(MAKE) $(HOST_JOBS) -C $(HOST_BUILD_DIR) \
+		CFLAGS="$(HOST_CFLAGS) -U_FORTIFY_SOURCE -Wno-error" \
+		CXXFLAGS="$(HOST_CXXFLAGS) -U_FORTIFY_SOURCE -Wno-error"
 endef
 
 define Host/Install
